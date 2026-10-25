@@ -242,6 +242,17 @@ class Cache:
             self.push_manifest(manifest, stats)
         return stats
 
+    def _pull_object(self, digest: str, stats: TransferStats) -> None:
+        if self.local.has_object(digest):
+            return
+        try:
+            self._fetch_object(digest)
+        except ObjectNotFoundError:
+            stats.missing += 1
+            return
+        stats.objects += 1
+        stats.bytes += self.local.object_path(digest).stat().st_size
+
     def pull(self, keys: Iterable[str]) -> TransferStats:
         if self.remote is None:
             raise CacheError("no remote configured")
@@ -253,17 +264,9 @@ class Cache:
                 continue
             stats.actions += 1
             for rec in manifest.outputs:
-                digests = {rec.digest}
-                if rec.kind == "tree":
-                    digests |= {e.digest for e in self.load_tree(rec.digest).entries}
-                for digest in sorted(digests):
-                    if self.local.has_object(digest):
-                        continue
-                    try:
-                        self._fetch_object(digest)
-                    except ObjectNotFoundError:
-                        stats.missing += 1
-                        continue
-                    stats.objects += 1
-                    stats.bytes += self.local.object_path(digest).stat().st_size
+                self._pull_object(rec.digest, stats)
+                if rec.kind == "tree" and self.local.has_object(rec.digest):
+                    tree = Tree.from_bytes(self.local.get_object_bytes(rec.digest))
+                    for entry in tree.entries:
+                        self._pull_object(entry.digest, stats)
         return stats
