@@ -1,0 +1,36 @@
+name: CI
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.28"
+      - name: Install Python 3.12 and locked dependencies
+        run: uv sync --frozen
+      - name: Format, lint, type-check, tests + coverage gate
+        run: make check
+      - name: Offline demo
+        run: make demo
+
+  integration:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.28"
+      - run: uv sync --frozen
+      - name: S3 backend against a real S3-compatible server
+        run: make integration

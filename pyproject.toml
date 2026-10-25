@@ -68,9 +68,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not integration'"
+pythonpath = ["tests"]
 markers = [
-    "integration: needs Docker (MinIO); run with `make integration`",
+    "integration: needs Docker (S3 server); run with `make integration`",
     "slow: end-to-end example runs",
 ]
 filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
