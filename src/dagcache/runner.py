@@ -215,6 +215,10 @@ class Runner:
                 reasons = ["always_run", *reasons]
             else:
                 if entry is not None and entry.key == key and not reasons:
+                    if entry.upstream != upstream:
+                        # Early cutoff: an upstream re-ran but wrote identical bytes.
+                        # Point lineage at the producers that are current now.
+                        self.ws.lockfile.update({name: replace(entry, upstream=upstream)})
                     self.cache.touch(key)
                     return self._finish(StageResult(name, Action.UP_TO_DATE, key))
                 restored = self._try_restore(name, key, upstream)

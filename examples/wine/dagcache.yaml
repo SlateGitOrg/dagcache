@@ -1,0 +1,65 @@
+# Wine-cultivar classification: a small but real ML pipeline.
+#
+#   load ──> split ──> featurize ──> train ──> evaluate
+#     │                     └──────> baseline
+#     └──> profile
+#
+# Every hyper-parameter reaches a script through ${...} interpolation, so it is
+# tracked in the stage's cache key automatically.
+name: wine
+params: params.yaml
+jobs: 4
+stages:
+  load:
+    desc: export scikit-learn's bundled UCI Wine data to CSV
+    cmd: python src/load.py --out data/raw.csv
+    code: [src/load.py, src/common.py]
+    outs: [data/raw.csv]
+
+  profile:
+    desc: per-column summary statistics of the raw data
+    cmd: python src/profile.py --data data/raw.csv --out reports/profile.json
+    code: [src/profile.py, src/common.py]
+    deps: [data/raw.csv]
+    outs: [reports/profile.json]
+
+  split:
+    desc: stratified train/test split (the test split is held out until evaluate)
+    cmd: >-
+      python src/split.py --data data/raw.csv --out-dir data/split
+      --test-size ${split.test_size} --seed ${split.seed}
+    code: [src/split.py, src/common.py]
+    deps: [data/raw.csv]
+    outs: [data/split/train.csv, data/split/test.csv]
+
+  featurize:
+    desc: fit a scaler on the train split only, transform both splits
+    cmd: >-
+      python src/featurize.py --train data/split/train.csv --test data/split/test.csv
+      --out-dir data/features --scaler ${features.scaler}
+    code: [src/featurize.py, src/common.py]
+    deps: [data/split/train.csv, data/split/test.csv]
+    outs: [data/features]
+
+  train:
+    desc: logistic regression on the scaled train split
+    cmd: >-
+      python src/train.py --features data/features --out models/model.pkl
+      --C ${train.C} --max-iter ${train.max_iter}
+    code: [src/train.py]
+    deps: [data/features]
+    outs: [models/model.pkl]
+
+  baseline:
+    desc: majority-class baseline for comparison
+    cmd: python src/baseline.py --features data/features --out metrics/baseline.json
+    code: [src/baseline.py]
+    deps: [data/features]
+    outs: [metrics/baseline.json]
+
+  evaluate:
+    desc: accuracy and macro-F1 on the held-out test split
+    cmd: python src/evaluate.py --features data/features --model models/model.pkl --out metrics/metrics.json
+    code: [src/evaluate.py]
+    deps: [data/features, models/model.pkl]
+    outs: [metrics/metrics.json]

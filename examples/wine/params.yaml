@@ -1,0 +1,10 @@
+split:
+  test_size: 0.3
+  seed: 7
+features:
+  scaler: standard   # standard | minmax
+train:
+  C: 1.0
+  max_iter: 500
+report:
+  title: Wine cultivar classifier   # not used by any stage: editing it invalidates nothing

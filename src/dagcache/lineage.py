@@ -84,6 +84,11 @@ class LineageResolver:
     def _manifest_for_key(
         self, key: str, fallback: ActionManifest | None = None
     ) -> ActionManifest | None:
+        """The lock entry with ``key`` if any (it carries the *current* upstream
+        links), else the cached manifest, else ``fallback``."""
+        for entry in self.lock.values():
+            if entry.key == key:
+                return entry
         return self.cache.get_action(key, use_remote=False) or fallback
 
     # -- public ----------------------------------------------------------
