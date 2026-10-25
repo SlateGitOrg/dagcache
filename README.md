@@ -35,7 +35,7 @@ where it falls short.
 |---|---|
 | **Stages** | shell commands in `dagcache.yaml`, or Python functions with `@pipeline.stage(...)`; the DAG is inferred from `deps`/`outs` (files or directories) |
 | **Cache keys** | SHA-256 over code, declared params, input content, output declaration, declared env vars, and a salt. See [docs/HASHING.md](docs/HASHING.md) |
-| **Code hashing** | `.py` files and functions hashed by normalised AST, so comments and formatting are ignored. Decorated functions include, transitively, the local helpers and constants they reference and the versions of the libraries they use |
+| **Code hashing** | `.py` files and functions hashed by normalised AST, so comments and formatting are ignored. Decorated functions include, transitively, the local helpers and constants they reference (in their bodies or as default-argument values) and the versions of the libraries they use |
 | **Transitive invalidation + early cutoff** | a change propagates downstream through *content*, so an upstream that re-runs but writes identical bytes stops the cascade |
 | **Caches** | local content-addressed store; remote on a shared directory or any S3-compatible service; `push`/`pull`/`autopush`; copy or hard-link restore |
 | **Parallelism** | independent stages run concurrently (`-j N`), bounded, fail-fast or `--keep-going` |
@@ -308,9 +308,11 @@ storing, manifest and lock-file writes) with stages that do almost nothing.
 * **Python stages share the GIL.** Decorated pure-Python stages do not speed up
   with `-j` (command stages and NumPy/scikit-learn code do).
 * **Python fingerprints are heuristic.** They follow references to local
-  functions, classes, modules and constants, and record library versions.
-  Behaviour driven by an object's runtime state, dynamic imports, or `getattr`
-  strings is not seen. The `salt` field is the escape hatch.
+  functions, classes, modules and constants (including default-argument
+  values), and record library versions. Behaviour driven by an object's runtime
+  state (including a default argument that is an arbitrary object), dynamic
+  imports, or `getattr` strings is not seen. The `salt` field is the escape
+  hatch.
 * **Env var digests are unsalted SHA-256** in a committed lock file. Do not track
   low-entropy secrets.
 * **Remote GC is not coordinated across machines.** `gc --remote` uses the local

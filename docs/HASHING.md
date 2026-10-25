@@ -104,12 +104,15 @@ The fingerprint is a set of named entries ([`codehash.py`](../src/dagcache/codeh
 | `py:<module>.<helper>` | every function/class it references that is defined in a **workspace-local** module, recursively |
 | `module:<name>` | a workspace-local module referenced as a module (`import helpers; helpers.f()`), hashed whole |
 | `const:<module>.<NAME>` | value of referenced module-level constants: numbers, strings, bytes, `None`, and lists/tuples/dicts/frozensets of those |
+| `default:<module>.<function>.<param>` | value of a default argument (positional or keyword-only), for the stage, its local helpers and their methods: `def stage(ctx, scale=SCALE)` is invalidated when `SCALE` changes, even though the source text does not. Defaults that are functions, modules or library objects are classified like the `py:`/`module:`/`lib:` rows |
 | `lib:<top-level package>` | `dist==version` for third-party code it references (e.g. `numpy==2.5.4`) |
 | `lib:<stdlib module>` | `python==3.12` for standard-library references |
 
 "Workspace-local" means the module's source file is under the workspace root
 and not inside a virtualenv or `site-packages`. Closure variables of nested
-functions are treated like globals. References to arbitrary objects (an open
+functions are treated like globals, and so are default-argument values
+(they are evaluated when the function is defined, so only their *values* can
+reveal a change). References to arbitrary objects (an open
 client, a model instance) are **not** fingerprinted; they are logged at debug
 level. If behaviour depends on such state, declare it (as a param or file) or
 bump `salt`.
