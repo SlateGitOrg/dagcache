@@ -58,6 +58,16 @@ def _human_bytes(n: int) -> str:
     return f"{n} B"  # pragma: no cover
 
 
+def _where(location: str) -> str:
+    """Show filesystem locations relative to the current directory when possible."""
+    if "://" in location:
+        return location
+    try:
+        return os.path.relpath(location)
+    except ValueError:  # pragma: no cover - different drive on Windows
+        return location
+
+
 class _Printer:
     """Thread-safe line printer for progress output."""
 
@@ -225,8 +235,9 @@ def cmd_gc(args: argparse.Namespace, out: TextIO) -> int:
             return 0
         verb = "would remove" if report.dry_run else "removed"
         out.write(
-            f"gc {report.location}: {report.roots} root action(s); kept {report.actions_kept} "
-            f"action(s) / {report.objects_kept} object(s); {verb} {report.actions_removed} "
+            f"gc {_where(report.location)}: {report.roots} root action(s); "
+            f"kept {report.actions_kept} action(s) / {report.objects_kept} object(s); "
+            f"{verb} {report.actions_removed} "
             f"action(s) / {report.objects_removed} object(s), {_human_bytes(report.bytes_freed)}\n"
         )
         if report.missing_objects:
@@ -252,7 +263,7 @@ def cmd_push(args: argparse.Namespace, out: TextIO) -> int:
             stats = cache.push(_keys_for(ws, args.targets))
         out.write(
             f"pushed {stats.actions} action(s), {stats.objects} new object(s) "
-            f"({_human_bytes(stats.bytes)}) to {cache.remote.location}\n"
+            f"({_human_bytes(stats.bytes)}) to {_where(cache.remote.location)}\n"
         )
         if stats.missing:
             out.write(f"warning: {stats.missing} item(s) missing locally were not pushed\n")
@@ -271,7 +282,7 @@ def cmd_pull(args: argparse.Namespace, out: TextIO) -> int:
             stats = cache.pull(_keys_for(ws, args.targets))
         out.write(
             f"pulled {stats.actions} action(s), {stats.objects} object(s) "
-            f"({_human_bytes(stats.bytes)}) from {cache.remote.location}\n"
+            f"({_human_bytes(stats.bytes)}) from {_where(cache.remote.location)}\n"
         )
         if stats.missing:
             out.write(f"warning: {stats.missing} item(s) not found on the remote\n")
@@ -292,7 +303,7 @@ def cmd_cache(args: argparse.Namespace, out: TextIO) -> int:
             bad = [d for d, _ in local.iter_objects() if not local.verify_object(d)]
             for d in bad:
                 out.write(f"corrupt object {d}\n")
-            out.write(f"verified {local.location}: {len(bad)} corrupt object(s)\n")
+            out.write(f"verified {_where(local.location)}: {len(bad)} corrupt object(s)\n")
             return 1 if bad else 0
         n_obj = n_bytes = 0
         for _, size in local.iter_objects():
@@ -300,7 +311,8 @@ def cmd_cache(args: argparse.Namespace, out: TextIO) -> int:
             n_bytes += size
         n_act = sum(1 for _ in local.iter_actions())
         out.write(
-            f"{local.location}: {n_act} action(s), {n_obj} object(s), {_human_bytes(n_bytes)}\n"
+            f"{_where(local.location)}: {n_act} action(s), {n_obj} object(s), "
+            f"{_human_bytes(n_bytes)}\n"
         )
         return 0
     finally:

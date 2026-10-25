@@ -229,10 +229,11 @@ def test_lock_file_round_trip_and_errors(tmp_path: Path) -> None:
     assert lf.read() == {}
     bad = tmp_path / "bad.lock"
     for text in [
-        "schema: 7\n",
+        '{"schema": 7}',
         "[: x",
-        "schema: 1\nstages:\n  a: 3\n",
-        "schema: 1\nstages:\n  a: {key: x}\n",
+        '{"schema": 1, "stages": []}',
+        '{"schema": 1, "stages": {"a": 3}}',
+        '{"schema": 1, "stages": {"a": {"key": "x"}}}',
     ]:
         bad.write_text(text)
         with pytest.raises(ConfigError):

@@ -19,6 +19,7 @@ import hashlib
 import os
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -83,6 +84,16 @@ class S3Backend(Backend):
     def _action_key(self, key: str) -> str:
         return self._key("actions", key[:2], f"{key[2:]}.json")
 
+    @contextmanager
+    def _guard(self, what: str) -> Iterator[None]:
+        """Turn transport/service errors into :class:`CacheError`."""
+        try:
+            yield
+        except CacheError:
+            raise
+        except Exception as exc:
+            raise CacheError(f"{self.location}: {what} failed: {exc}") from exc
+
     def _exists(self, key: str) -> bool:
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
@@ -94,7 +105,9 @@ class S3Backend(Backend):
 
     def _list(self, sub: str) -> Iterator[dict[str, Any]]:
         paginator = self.client.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket, Prefix=self._key(sub) + "/"):
+        with self._guard(f"listing {sub}"):
+            pages = list(paginator.paginate(Bucket=self.bucket, Prefix=self._key(sub) + "/"))
+        for page in pages:
             for item in page.get("Contents", []):
                 yield dict(item)
 
@@ -111,7 +124,8 @@ class S3Backend(Backend):
                 h.update(chunk)
         if h.hexdigest() != digest:
             raise CorruptObjectError(digest, h.hexdigest(), f"source file {src}")
-        self.client.upload_file(str(src), self.bucket, self._obj_key(digest))
+        with self._guard("upload"):
+            self.client.upload_file(str(src), self.bucket, self._obj_key(digest))
         return True
 
     def put_object_bytes(self, digest: str, data: bytes) -> bool:
@@ -120,7 +134,8 @@ class S3Backend(Backend):
             raise CorruptObjectError(digest, actual, "in-memory object")
         if self.has_object(digest):
             return False
-        self.client.put_object(Bucket=self.bucket, Key=self._obj_key(digest), Body=data)
+        with self._guard("put"):
+            self.client.put_object(Bucket=self.bucket, Key=self._obj_key(digest), Body=data)
         return True
 
     def get_object_file(self, digest: str, dest: Path) -> None:
@@ -167,7 +182,8 @@ class S3Backend(Backend):
                 yield digest, int(item.get("Size", 0))
 
     def delete_object(self, digest: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=self._obj_key(digest))
+        with self._guard("delete"):
+            self.client.delete_object(Bucket=self.bucket, Key=self._obj_key(digest))
 
     # -- actions ---------------------------------------------------------
     def get_action(self, key: str) -> bytes | None:
@@ -181,12 +197,13 @@ class S3Backend(Backend):
         return body
 
     def put_action(self, key: str, data: bytes) -> None:
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=self._action_key(key),
-            Body=data,
-            ContentType="application/json",
-        )
+        with self._guard("put action"):
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=self._action_key(key),
+                Body=data,
+                ContentType="application/json",
+            )
 
     def iter_actions(self) -> Iterator[tuple[str, float]]:
         for item in self._list("actions"):
@@ -201,4 +218,5 @@ class S3Backend(Backend):
                 yield key, ts
 
     def delete_action(self, key: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=self._action_key(key))
+        with self._guard("delete action"):
+            self.client.delete_object(Bucket=self.bucket, Key=self._action_key(key))

@@ -101,3 +101,16 @@ def test_pull_reports_missing(tmp_path: Path, make_ws: WsFactory) -> None:
     stats = a.cache().pull(["0" * 64])
     assert stats.missing == 1 and stats.actions == 0
     assert a.cache().push(["f" * 64]).missing == 1
+
+
+def test_unreachable_remote_degrades_to_local_cache(
+    s3: None, make_ws: WsFactory, caplog: pytest.LogCaptureFixture
+) -> None:
+    yaml = "cache:\n  remote: s3://no-such-bucket/x\n  autopush: true\n" + CHAIN_YAML
+    ws = make_ws(yaml, CHAIN_PARAMS)
+    write(ws.root / "raw.txt", "hello world\n")
+    report = repro(ws)
+    assert report.ok and set(actions(report).values()) == {"ran"}
+    assert "autopush of prepare failed" in caplog.text
+    assert "remote lookup failed" in caplog.text
+    assert set(actions(repro(make_ws(root=ws.root))).values()) == {"up-to-date"}

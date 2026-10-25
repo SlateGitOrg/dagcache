@@ -81,7 +81,11 @@ class Cache:
             if manifest is not None:
                 return manifest
         if use_remote and self.remote is not None:
-            data = self.remote.get_action(key)
+            try:
+                data = self.remote.get_action(key)
+            except CacheError as exc:
+                log.warning("remote lookup failed, treating as a miss: %s", exc)
+                return None
             if data is not None:
                 manifest = self._parse_action(key, data, self.remote.location)
                 if manifest is not None:
@@ -93,7 +97,13 @@ class Cache:
     def put_action(self, manifest: ActionManifest) -> None:
         self.local.put_action(manifest.key, manifest.to_bytes())
         if self.autopush and self.remote is not None:
-            self.push_manifest(manifest, TransferStats())
+            try:
+                self.push_manifest(manifest, TransferStats())
+            except CacheError as exc:
+                # The local result is complete; sharing it can be retried with `push`.
+                log.warning(
+                    "autopush of %s failed (run `dagcache push` later): %s", manifest.stage, exc
+                )
 
     def touch(self, key: str) -> None:
         self.local.touch_action(key)

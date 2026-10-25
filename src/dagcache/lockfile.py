@@ -3,26 +3,43 @@
 It is meant to be committed alongside the pipeline (like ``dvc.lock`` or a
 package lock file): it pins exactly which code, params and inputs produced the
 outputs in the workspace, and is the root set for garbage collection.
+
+The format is pretty-printed JSON with stages in sorted order, so diffs are
+reviewable. (It was YAML at first; parsing YAML once per stage made a
+300-stage run spend most of its time in the YAML parser - see DECISIONS.md.)
+
 Updates are read-modify-write under an exclusive file lock and land with an
 atomic rename, so concurrent runs that finish different stages never lose each
-other's entries.
+other's entries. Reads are memoised on the file's ``(inode, size, mtime)``
+signature; every write replaces the inode, so a change by another process is
+always seen.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import tempfile
+import threading
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-
-import yaml
 
 from .errors import CacheError, ConfigError
 from .locking import FileLock
 from .manifest import ActionManifest
 
 LOCK_SCHEMA = 1
+
+_Signature = tuple[int, int, int]
+
+
+def _signature(path: Path) -> _Signature | None:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    return (st.st_ino, st.st_size, st.st_mtime_ns)
 
 
 class LockFile:
@@ -32,10 +49,21 @@ class LockFile:
         self.path = path
         self.mutex_path = mutex_path
         self.timeout = timeout
+        self._memo: tuple[_Signature, dict[str, ActionManifest]] | None = None
+        self._memo_lock = threading.Lock()
 
     def read(self) -> dict[str, ActionManifest]:
         """Entries by stage name; empty if the file does not exist."""
-        return read_lock_file(self.path)
+        sig = _signature(self.path)
+        if sig is None:
+            return {}
+        with self._memo_lock:
+            if self._memo is not None and self._memo[0] == sig:
+                return dict(self._memo[1])
+        entries = read_lock_file(self.path)
+        with self._memo_lock:
+            self._memo = (sig, entries)
+        return dict(entries)
 
     def update(
         self,
@@ -56,7 +84,7 @@ class LockFile:
             "schema": LOCK_SCHEMA,
             "stages": {name: _entry_dict(entries[name]) for name in sorted(entries)},
         }
-        text = yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, width=100)
+        text = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(dir=self.path.parent, prefix=".dagcache.lock.")
         tmp = Path(tmp_name)
@@ -68,6 +96,10 @@ class LockFile:
         finally:
             with contextlib.suppress(FileNotFoundError):
                 tmp.unlink()
+        sig = _signature(self.path)
+        if sig is not None:
+            with self._memo_lock:
+                self._memo = (sig, dict(entries))
 
 
 def _entry_dict(manifest: ActionManifest) -> dict[str, object]:
@@ -84,15 +116,20 @@ def read_lock_file(path: Path) -> dict[str, ActionManifest]:
     except FileNotFoundError:
         return {}
     try:
-        doc = yaml.safe_load(text) or {}
-    except yaml.YAMLError as exc:
-        raise ConfigError(f"{path.name} is not valid YAML: {exc}") from exc
+        doc = json.loads(text)
+    except ValueError as exc:
+        raise ConfigError(f"{path.name} is not valid JSON: {exc}") from exc
     if not isinstance(doc, dict) or doc.get("schema") != LOCK_SCHEMA:
         raise ConfigError(f"{path.name}: unsupported or missing lock schema")
+    stages = doc.get("stages")
+    if stages is None:
+        stages = {}
+    if not isinstance(stages, dict):
+        raise ConfigError(f"{path.name}: 'stages' must be an object")
     out: dict[str, ActionManifest] = {}
-    for name, raw in (doc.get("stages") or {}).items():
+    for name, raw in stages.items():
         if not isinstance(raw, dict):
-            raise ConfigError(f"{path.name}: entry for '{name}' is not a mapping")
+            raise ConfigError(f"{path.name}: entry for '{name}' is not an object")
         try:
             out[str(name)] = ActionManifest.from_dict({**raw, "schema": 1, "stage": str(name)})
         except CacheError as exc:
