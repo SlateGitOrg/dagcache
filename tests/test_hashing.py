@@ -144,3 +144,50 @@ def test_stat_cache_persists_across_instances(tmp_path: Path) -> None:
     Hasher(tmp_path, sc2).file_digest(f)
     assert sc2.hits == 1
     sc2.close()
+
+
+def test_stat_cache_concurrent_first_open(tmp_path: Path) -> None:
+    """Many processes creating the database at once must all succeed (WAL switch race)."""
+    import subprocess
+    import sys
+
+    code = (
+        "import os, sys, time; from pathlib import Path; from dagcache.hashing import StatCache\n"
+        "while time.time() < float(sys.argv[3]): pass\n"  # start together
+        "sc = StatCache(Path(sys.argv[1]))\n"
+        "assert sc._conn is not None\n"
+        "st = os.stat(sys.argv[1])\n"
+        "sc.store(sys.argv[2], st, 'd' * 64); sc.close()\n"
+    )
+    import time
+
+    db = tmp_path / "state.db"
+    start = str(time.time() + 1.5)
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", code, str(db), f"/p{i}", start], stderr=subprocess.PIPE
+        )
+        for i in range(8)
+    ]
+    errors = [p.communicate(timeout=60)[1] for p in procs]
+    assert all(p.returncode == 0 for p in procs), errors
+
+
+def test_stat_cache_degrades_when_unusable(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    bad = tmp_path / "db-is-a-dir"
+    bad.mkdir()
+    sc = StatCache(bad)
+    assert "stat cache disabled" in caplog.text
+    f = tmp_path / "f"
+    f.write_text("x")
+    h = Hasher(tmp_path, sc)
+    assert h.digest_path("f").digest == hashlib.sha256(b"x").hexdigest()
+    assert sc.prune_missing() == 0
+    sc.close()
+    # A connection that breaks mid-run: queries fail, hashing still works.
+    sc2 = StatCache(tmp_path / "ok.db")
+    assert sc2._conn is not None
+    sc2._conn.close()
+    assert Hasher(tmp_path, sc2).digest_path("f").digest == hashlib.sha256(b"x").hexdigest()

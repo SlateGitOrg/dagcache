@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 CHUNK_SIZE = 1 << 20
 #: Entries hashed less than this long after their mtime are re-verified.
 RACY_WINDOW_NS = 2_000_000_000
+_OPEN_ATTEMPTS = 40
 
 Kind = Literal["file", "tree"]
 
@@ -117,7 +118,9 @@ class StatCache:
     """Persistent ``stat -> digest`` memo backed by SQLite.
 
     Safe to share between threads (a mutex guards the connection) and between
-    processes (SQLite's own locking, WAL mode, generous busy timeout).
+    processes (SQLite's own locking, WAL mode, generous busy timeout). It is an
+    optimisation only: if the database cannot be opened or queried, lookups
+    miss and files are simply re-hashed - a run never fails because of it.
     """
 
     def __init__(self, db_path: Path) -> None:
@@ -126,23 +129,49 @@ class StatCache:
         self.hits = 0
         self.misses = 0
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path), timeout=60.0, check_same_thread=False)
-        with self._lock:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS files ("
-                " path TEXT PRIMARY KEY, ino INTEGER, size INTEGER, mtime_ns INTEGER,"
-                " ctime_ns INTEGER, hashed_ns INTEGER, digest TEXT)"
-            )
-            self._conn.commit()
+        self._conn: sqlite3.Connection | None = None
+        try:
+            self._conn = self._open()
+        except sqlite3.Error as exc:
+            log.warning("stat cache disabled (%s); files will be re-hashed", exc)
+
+    def _open(self) -> sqlite3.Connection:
+        # Switching to WAL needs a brief exclusive lock that the busy timeout does
+        # not cover, so concurrent first-time opens are retried with backoff.
+        delay = 0.01
+        for attempt in range(_OPEN_ATTEMPTS):
+            conn = sqlite3.connect(str(self.db_path), timeout=60.0, check_same_thread=False)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS files ("
+                    " path TEXT PRIMARY KEY, ino INTEGER, size INTEGER, mtime_ns INTEGER,"
+                    " ctime_ns INTEGER, hashed_ns INTEGER, digest TEXT)"
+                )
+                conn.commit()
+                return conn
+            except sqlite3.OperationalError as exc:
+                conn.close()
+                transient = "locked" in str(exc) or "busy" in str(exc)
+                if not transient or attempt == _OPEN_ATTEMPTS - 1:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 0.25)
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def lookup(self, abs_path: str, st: os.stat_result) -> str | None:
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT ino, size, mtime_ns, ctime_ns, hashed_ns, digest FROM files WHERE path=?",
-                (abs_path,),
-            ).fetchone()
+        row = None
+        if self._conn is not None:
+            try:
+                with self._lock:
+                    row = self._conn.execute(
+                        "SELECT ino, size, mtime_ns, ctime_ns, hashed_ns, digest"
+                        " FROM files WHERE path=?",
+                        (abs_path,),
+                    ).fetchone()
+            except sqlite3.Error as exc:
+                log.debug("stat cache lookup failed: %s", exc)
         if row is None:
             self.misses += 1
             return None
@@ -163,23 +192,28 @@ class StatCache:
         return str(digest)
 
     def store(self, abs_path: str, st: os.stat_result, digest: str) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?)",
-                (
-                    abs_path,
-                    st.st_ino,
-                    st.st_size,
-                    st.st_mtime_ns,
-                    st.st_ctime_ns,
-                    time.time_ns(),
-                    digest,
-                ),
-            )
-            self._conn.commit()
+        if self._conn is None:
+            return
+        row = (
+            abs_path,
+            st.st_ino,
+            st.st_size,
+            st.st_mtime_ns,
+            st.st_ctime_ns,
+            time.time_ns(),
+            digest,
+        )
+        try:
+            with self._lock:
+                self._conn.execute("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?)", row)
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            log.debug("stat cache store failed: %s", exc)
 
     def prune_missing(self) -> int:
         """Drop entries for files that no longer exist; returns how many."""
+        if self._conn is None:
+            return 0
         with self._lock:
             paths = [r[0] for r in self._conn.execute("SELECT path FROM files")]
             gone = [p for p in paths if not os.path.exists(p)]
@@ -189,7 +223,9 @@ class StatCache:
 
     def close(self) -> None:
         with self._lock:
-            self._conn.close()
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
 
 class Hasher:

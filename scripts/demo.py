@@ -153,10 +153,16 @@ def main() -> None:
         )
         for _ in range(2)
     ]
+    ran = 0
     for i, proc in enumerate(procs, 1):
         out, _ = proc.communicate()
-        print(f"[process {i}] {out.strip()}")
-    print("(each stage ran exactly once across both processes; the other found it done)")
+        print(f"[process {i}] exit {proc.returncode}: {out.strip()}")
+        if proc.returncode != 0:
+            raise SystemExit("concurrent run failed")
+        ran += int(out.split("s: ", 1)[1].split(" ran", 1)[0])
+    print(f"stage executions across both processes: {ran} (pipeline has 7 stages)")
+    if ran != 7:
+        raise SystemExit("a stage ran more than once")
 
     banner("14. Python-decorator pipeline: function-level code hashing")
     dagcache(DECO, "-f", "pipeline.py", "repro")
