@@ -2,7 +2,8 @@
 
 Measures, on synthetic workloads generated here (no external data):
 
-1. hashing throughput of a 256 MiB file, cold vs. stat-cache hit;
+1. hashing throughput of a 256 MiB file (no stat cache; the file is in the OS page cache)
+   vs. a stat-cache hit;
 2. scheduling/caching overhead on a 300-stage DAG: first run, no-op re-run, ``status``;
 3. wall-clock speed-up from parallel execution of independent stages.
 
@@ -49,7 +50,9 @@ def bench_hashing(tmp: Path) -> None:
     warm = (time.perf_counter() - t0) / 100
     cache.close()
     record(
-        "SHA-256 hashing, 256 MiB file (cold)", f"{size / cold / 1e9:.2f} GB/s", f"({cold:.3f}s)"
+        "SHA-256, 256 MiB file, no stat cache (in page cache)",
+        f"{size / cold / 1e9:.2f} GB/s",
+        f"({cold:.3f}s)",
     )
     record("same file, stat-cache hit", f"{warm * 1e6:.0f} µs", "per lookup")
 
