@@ -210,6 +210,7 @@ class Cache:
             tree = self.load_tree(rec.digest)
             dest.parent.mkdir(parents=True, exist_ok=True)
             staging = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f".{dest.name}.restore."))
+            os.chmod(staging, 0o755)  # mkdtemp's 0700 would leak into the restored tree
             try:
                 for entry in tree.entries:
                     self._materialize_file(entry.digest, staging / entry.path, entry.executable)

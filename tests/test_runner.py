@@ -91,6 +91,7 @@ def test_directory_outputs_round_trip_with_exec_bit(make_ws: WsFactory) -> None:
     assert (out / "sub/b").read_text() == "2\n"
     assert (out / "v").read_text() == "1\n"
     assert os.stat(out / "run.sh").st_mode & stat.S_IXUSR
+    assert stat.S_IMODE(out.stat().st_mode) == 0o755
     assert not [p for p in ws.root.iterdir() if p.name.startswith(".out.")]
 
 

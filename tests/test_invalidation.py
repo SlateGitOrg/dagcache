@@ -145,6 +145,14 @@ def test_salt_and_outs_changes_invalidate(make_ws: WsFactory) -> None:
     )
     report = repro(ws)
     assert report.by_name()["s"].reasons == ["salt changed: '' → 'v2'"]
+    ws = make_ws(
+        "stages:\n  s:\n    cmd: echo a > a.txt; echo b > b.txt\n    outs: [a.txt, b.txt]\n"
+        "    salt: v2\n",
+        root=ws.root,
+    )
+    reasons = repro(ws).by_name()["s"].reasons
+    assert reasons[0].startswith("command changed")
+    assert reasons[1] == "outputs changed: ['a.txt'] → ['a.txt', 'b.txt']"
 
 
 def test_code_file_comment_change_is_ignored_but_logic_change_is_not(make_ws: WsFactory) -> None:
