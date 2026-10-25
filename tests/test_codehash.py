@@ -127,6 +127,62 @@ def test_closure_cells_and_local_module_reference(tmp_path: Path) -> None:
     assert helpers.f() == 1
 
 
+DEFAULTS = """
+import numpy as np
+import defaulthelpers
+from defaulthelpers import SCALE, double
+
+def stage(ctx, scale=SCALE, *, fn=double, mod=defaulthelpers, arr=np.zeros, n=3):
+    return fn(scale) * n
+"""
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "changed"),
+    [
+        ("SCALE = 5", "SCALE = 11", {"default:stage.scale", "module:defaulthelpers"}),
+        ("return x * 2", "return x * 3", {"py:defaulthelpers.double", "module:defaulthelpers"}),
+    ],
+)
+def test_default_argument_values_are_fingerprinted(
+    tmp_path: Path, old: str, new: str, changed: set[str]
+) -> None:
+    helper_src = "SCALE = 5\n\ndef double(x):\n    return x * 2\n"
+
+    def entries(helper: str) -> dict[str, str]:
+        load(tmp_path, helper, name="defaulthelpers")
+        return fp(tmp_path, load(tmp_path, DEFAULTS))
+
+    a = entries(helper_src)
+    # Positional and keyword-only defaults, classified like any other reference.
+    assert {
+        "default:stage.scale",
+        "default:stage.n",
+        "py:defaulthelpers.double",
+        "module:defaulthelpers",
+    } <= set(a)
+    assert a["lib:numpy"] == f"numpy=={np.__version__}"
+    # The source text "scale=SCALE" is unchanged; only the default's value moves.
+    b = entries(helper_src.replace(old, new))
+    assert {k for k in set(a) | set(b) if a.get(k) != b.get(k)} == changed
+
+
+def test_method_default_arguments_are_fingerprinted(tmp_path: Path) -> None:
+    src = """
+    LIMIT = {limit}
+
+    class Model:
+        def fit(self, x, cap=LIMIT):
+            return min(x, cap)
+
+    def stage(ctx):
+        return Model().fit(2)
+    """
+    a = fp(tmp_path, load(tmp_path, src.format(limit=3)))
+    b = fp(tmp_path, load(tmp_path, src.format(limit=4)))
+    assert {k for k in set(a) | set(b) if a.get(k) != b.get(k)} == {"default:Model.fit.cap"}
+
+
 def test_non_local_modules_and_unhashable_refs(tmp_path: Path) -> None:
     mod = load(
         tmp_path,

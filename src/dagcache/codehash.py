@@ -12,6 +12,9 @@ The goal is "re-run when behaviour could have changed, not when formatting did".
   - workspace-local modules referenced by name are hashed whole (normalised);
   - simple constants (numbers, strings, and lists/tuples/dicts of them) contribute
     their value;
+  - default-argument values (``def f(x=SCALE)``, keyword-only defaults included)
+    are classified like references: they are evaluated at definition time, so
+    neither the source text nor ``co_names`` changes when ``SCALE`` does;
   - third-party modules/functions contribute ``<distribution>==<version>``;
   - standard-library references contribute the Python ``major.minor`` version.
 
@@ -155,14 +158,22 @@ class CodeFingerprinter:
             payload = repr((code.co_code, code.co_consts, code.co_names)).encode()
             entries[f"py:{label}"] = digest_bytes(payload)
         if isinstance(obj, types.FunctionType):
-            for name, value in self._referenced_values(obj):
-                self._classify(name, value, modname, entries, seen)
+            self._classify_function_refs(obj, modname, entries, seen)
         elif inspect.isclass(obj):
             for attr in vars(obj).values():
                 func = attr.__func__ if isinstance(attr, classmethod | staticmethod) else attr
                 if isinstance(func, types.FunctionType):
-                    for name, value in self._referenced_values(func):
-                        self._classify(name, value, modname, entries, seen)
+                    self._classify_function_refs(func, modname, entries, seen)
+
+    def _classify_function_refs(
+        self, fn: types.FunctionType, modname: str, entries: dict[str, str], seen: set[int]
+    ) -> None:
+        for name, value in self._referenced_values(fn):
+            self._classify(name, value, modname, entries, seen)
+        for param, value in _default_values(fn):
+            self._classify(
+                f"{fn.__qualname__}.{param}", value, modname, entries, seen, const_kind="default"
+            )
 
     @staticmethod
     def _referenced_values(fn: types.FunctionType) -> list[tuple[str, Any]]:
@@ -180,7 +191,14 @@ class CodeFingerprinter:
         return out
 
     def _classify(
-        self, name: str, value: Any, modname: str, entries: dict[str, str], seen: set[int]
+        self,
+        name: str,
+        value: Any,
+        modname: str,
+        entries: dict[str, str],
+        seen: set[int],
+        *,
+        const_kind: str = "const",
     ) -> None:
         if isinstance(value, types.ModuleType):
             if self._module_is_local(value):
@@ -202,9 +220,21 @@ class CodeFingerprinter:
         if _is_simple_constant(value):
             text = repr(value)
             if len(text) <= _MAX_CONST_REPR:
-                entries[f"const:{modname}.{name}"] = digest_bytes(text.encode())
+                entries[f"{const_kind}:{modname}.{name}"] = digest_bytes(text.encode())
                 return
         log.debug("reference %s (%s) not fingerprinted", name, type(value).__name__)
+
+
+def _default_values(fn: types.FunctionType) -> list[tuple[str, Any]]:
+    """``(parameter name, default value)`` for positional and keyword-only defaults."""
+    code = fn.__code__
+    out: list[tuple[str, Any]] = []
+    if fn.__defaults__:
+        positional = code.co_varnames[: code.co_argcount]
+        out.extend(zip(positional[-len(fn.__defaults__) :], fn.__defaults__, strict=True))
+    if fn.__kwdefaults__:
+        out.extend(sorted(fn.__kwdefaults__.items()))
+    return out
 
 
 def _global_names(code: types.CodeType) -> list[str]:

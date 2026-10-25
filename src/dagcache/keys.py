@@ -106,6 +106,7 @@ def _code_label(entry: str) -> str:
         "py": f"function {name}",
         "module": f"module {name}",
         "const": f"constant {name}",
+        "default": f"default argument {name}",
         "lib": f"library {name}",
     }.get(kind, entry)
 

@@ -221,6 +221,50 @@ def test_python_helper_change_invalidates_transitively(tmp_path: Path) -> None:
     assert (root / "b.txt").read_text() == "44"
 
 
+def _default_arg_pipeline(root: Path, scale: int) -> Pipeline:
+    """Stages reading a workspace-local constant via a default argument and via the body."""
+    import importlib.util
+    import sys
+
+    write(root / "scalehelpers.py", f"SCALE = {scale}\n")
+    spec = importlib.util.spec_from_file_location("scalehelpers", root / "scalehelpers.py")
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["scalehelpers"] = mod
+    spec.loader.exec_module(mod)
+    pipe = Pipeline("defaults")
+
+    @pipe.stage(outs=["a.txt"])
+    def a(ctx: StageContext, scale: int = mod.SCALE) -> None:
+        ctx.path("a.txt").write_text(str(2 * scale))
+
+    @pipe.stage(deps=["a.txt"], outs=["b.txt"])
+    def b(ctx: StageContext, *, factor: int = mod.SCALE) -> None:
+        ctx.path("b.txt").write_text(str(int(ctx.path("a.txt").read_text()) + factor))
+
+    return pipe
+
+
+def test_default_argument_constant_change_invalidates(tmp_path: Path) -> None:
+    root = tmp_path / "defws"
+    root.mkdir()
+    ws = Workspace(root, _default_arg_pipeline(root, 5))
+    assert actions(repro(ws)) == {"a": "ran", "b": "ran"}
+    ws.close()
+    ws = Workspace(root, _default_arg_pipeline(root, 5))
+    assert actions(repro(ws)) == {"a": "up-to-date", "b": "up-to-date"}
+    ws.close()
+    ws = Workspace(root, _default_arg_pipeline(root, 11))
+    report = repro(ws)
+    ws.close()
+    assert actions(report) == {"a": "ran", "b": "ran"}
+    by = report.by_name()
+    assert any("default argument" in r and ".a.scale changed" in r for r in by["a"].reasons)
+    assert any("default argument" in r and ".b.factor changed" in r for r in by["b"].reasons)
+    assert (root / "a.txt").read_text() == "22"
+    assert (root / "b.txt").read_text() == "33"
+
+
 def test_stat_cache_does_not_hide_same_size_rewrite(
     chain_ws: Workspace, make_ws: WsFactory
 ) -> None:
