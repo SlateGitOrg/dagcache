@@ -121,6 +121,8 @@ class DagExecutor[T]:
                     for fut in done:
                         node = running.pop(fut)
                         exc = fut.exception()
+                        if exc is not None and not isinstance(exc, Exception):
+                            raise exc  # KeyboardInterrupt/SystemExit: abort the run
                         if exc is not None:
                             results[node] = NodeResult(Outcome.FAILED, error=exc)
                             skip_descendants(node)
