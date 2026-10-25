@@ -5,7 +5,7 @@ description = "Content-addressed, cached, parallel pipeline runner for reproduci
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "archit2501" }]
+authors = [{ name = "dagcache contributors" }]
 requires-python = ">=3.12"
 classifiers = [
     "Programming Language :: Python :: 3.12",

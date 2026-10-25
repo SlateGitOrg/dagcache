@@ -1,5 +1,7 @@
 # dagcache
 
+[![CI](https://github.com/SlateGitOrg/dagcache/actions/workflows/ci.yml/badge.svg)](https://github.com/SlateGitOrg/dagcache/actions/workflows/ci.yml)
+
 **A content-addressed, cached, parallel pipeline runner for reproducible ML workflows**,
 in the spirit of DVC and Bazel. You declare stages (in YAML or with Python decorators),
 and dagcache hashes each stage's code, parameters and input data into a cache key. It
@@ -14,6 +16,13 @@ train      stale       param train.C changed: 1.0 → 0.05
 evaluate   pending     upstream stage 'train' is stale
 ```
 
+## Why
+
+Re-running a whole ML pipeline after every small change wastes time, and
+timestamps-based tools cannot tell you *why* something is stale. dagcache keys every
+stage on what it actually depends on, so results are reused whenever the same
+inputs reappear.
+
 ## Who it is for
 
 ML engineers and data scientists whose pipeline is a handful to a few hundred
@@ -25,7 +34,7 @@ scripts (load → split → featurize → train → evaluate) and who want:
 * provenance for every artifact: which code, which params, which data;
 * local-first operation: a single `pip install`, no server, and optionally S3.
 
-It is a portfolio-scale implementation (about 4,600 lines of typed Python), not a
+It is a compact implementation (about 4,600 lines of typed Python), not a
 replacement for DVC in production. The [Limitations](#limitations) section says
 where it falls short.
 
@@ -70,13 +79,13 @@ and the keys of the upstream producers. `dagcache.lock` (committed with your
 code) holds the current manifest for each stage. Details, algorithms and
 complexity are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Quickstart
+## Quick start
 
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/) on Linux or macOS.
 
 ```bash
-git clone <this repo> dagcache && cd dagcache
-make check      # format, lint, mypy --strict, 161 tests + coverage gate
+git clone https://github.com/SlateGitOrg/dagcache.git && cd dagcache
+make check      # format, lint, mypy --strict, 165 tests + coverage gate
 make demo       # the walkthrough below, offline, in build/demo/
 ```
 
@@ -258,15 +267,15 @@ behaviour:
 * **The remote is optional and failures degrade.** Lookup errors count as misses,
   and autopush errors are warnings with a hint to run `dagcache push`.
 
-## Tests, coverage and benchmarks
+## Testing and benchmarks
 
 Every number below was produced by the command next to it, on the development
 machine (macOS arm64, 8 cores, Python 3.12.13).
 
 | what | command | result |
 |---|---|---|
-| full gate | `make check` | ruff format + lint clean, `mypy --strict` clean, **161 passed** (2 integration tests deselected) |
-| coverage (line + branch, `src/dagcache`) | `make check` (`pytest --cov`, gate `fail_under = 85`) | **95.07 %** |
+| full gate | `make check` | ruff format + lint clean, `mypy --strict` clean, **165 passed** (2 integration tests deselected) |
+| coverage (line + branch, `src/dagcache`) | `make check` (`pytest --cov`, gate `fail_under = 85`) | **95.09 %** |
 | real S3 server | `make integration` (SeaweedFS 3.97 in Docker) | 2 passed |
 | source size | `wc -l src/dagcache/*.py src/dagcache/backends/*.py` | 4,585 lines (tests: 2,539) |
 
@@ -322,8 +331,8 @@ storing, manifest and lock-file writes) with stages that do almost nothing.
   is fine to a few thousand stages but would need batching beyond that.
 * **Validation scope.** The S3 backend is unit-tested against moto and
   integration-tested against SeaweedFS, not against AWS S3 itself. CI is defined
-  in `.github/workflows/ci.yml` but has not run (the repository has not been
-  pushed). Nothing here has been used in production.
+  in `.github/workflows/ci.yml` (Linux and macOS). Nothing here has been used in
+  production.
 * **Small example.** The ML example uses a 178-row dataset, so its metrics say
   nothing about modelling.
 
@@ -336,12 +345,12 @@ storing, manifest and lock-file writes) with stages that do almost nothing.
 * Leases for coordinated GC on shared remotes; GCS/Azure backends.
 * Process-pool execution for CPU-bound Python stages.
 
-## Repository layout
+## Project layout
 
 ```
 src/dagcache/        library + CLI (typed, mypy --strict)
   backends/          filesystem and S3 stores
-tests/               161 tests (unit, property, multi-process, end-to-end), integration/
+tests/               165 tests (unit, property, multi-process, end-to-end), integration/
 examples/wine/       scikit-learn pipeline in YAML
 examples/decorators/ the same ideas with Python decorators
 scripts/demo.py      `make demo`;  scripts/integration.sh  `make integration`
@@ -349,4 +358,6 @@ bench/bench.py       `make bench`
 docs/                ARCHITECTURE.md, HASHING.md
 ```
 
-License: MIT (see [LICENSE](LICENSE)).
+## License
+
+MIT — see [LICENSE](LICENSE).
