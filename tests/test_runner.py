@@ -62,7 +62,10 @@ def test_targets_run_only_upstream_closure(chain_ws: Workspace) -> None:
 
 
 def test_removed_stage_is_pruned_from_lock_file(make_ws: WsFactory) -> None:
-    two = "stages:\n  a:\n    cmd: echo a > a\n    outs: [a]\n  b:\n    cmd: echo b > b\n    outs: [b]\n"
+    two = (
+        "stages:\n  a:\n    cmd: echo a > a\n    outs: [a]\n"
+        "  b:\n    cmd: echo b > b\n    outs: [b]\n"
+    )
     ws = make_ws(two)
     repro(ws)
     assert set(ws.lockfile.read()) == {"a", "b"}

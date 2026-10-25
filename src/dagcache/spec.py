@@ -105,7 +105,9 @@ def parse_config(raw: dict[str, Any]) -> Config:
         if not isinstance(raw["python"], str):
             raise ConfigError("'python' must be 'file.py' or 'file.py:attribute'")
         cfg.python = raw["python"]
-    cache = raw.get("cache") or {}
+    cache = raw.get("cache")
+    if cache is None:
+        cache = {}
     if not isinstance(cache, dict):
         raise ConfigError("'cache' must be a mapping")
     unknown = set(cache) - _CACHE_KEYS
@@ -123,7 +125,9 @@ def parse_config(raw: dict[str, Any]) -> Config:
         if not isinstance(cache["autopush"], bool):
             raise ConfigError("cache.autopush must be true or false")
         cfg.cache.autopush = cache["autopush"]
-    s3 = cache.get("s3") or {}
+    s3 = cache.get("s3")
+    if s3 is None:
+        s3 = {}
     if not isinstance(s3, dict):
         raise ConfigError("cache.s3 must be a mapping")
     cfg.cache.s3_endpoint_url = s3.get("endpoint_url")

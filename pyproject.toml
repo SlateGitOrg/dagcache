@@ -52,7 +52,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["PLR2004", "S101", "PLW0603"]
+"tests/**" = ["PLR2004", "PLW0603", "PT018"]
+"tests/conftest.py" = ["E501"]  # YAML fixtures read better unwrapped
 "examples/**" = ["T201"]
 
 [tool.mypy]

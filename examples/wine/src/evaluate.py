@@ -24,7 +24,7 @@ def main() -> None:
     metrics = {
         "accuracy": round(float(accuracy_score(test["y"], pred)), 4),
         "macro_f1": round(float(f1_score(test["y"], pred, average="macro")), 4),
-        "n_test": int(len(test["y"])),
+        "n_test": len(test["y"]),
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(metrics, indent=2))

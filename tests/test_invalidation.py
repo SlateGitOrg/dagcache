@@ -20,7 +20,11 @@ def test_first_run_runs_everything_then_noop(chain_ws: Workspace, make_ws: WsFac
     first = repro(chain_ws)
     assert actions(first) == {"prepare": "ran", "train": "ran", "evaluate": "ran"}
     second = repro(reload(make_ws, chain_ws))
-    assert actions(second) == {"prepare": "up-to-date", "train": "up-to-date", "evaluate": "up-to-date"}
+    assert actions(second) == {
+        "prepare": "up-to-date",
+        "train": "up-to-date",
+        "evaluate": "up-to-date",
+    }
     assert run_count(chain_ws, "prepare") == 1
 
 
@@ -38,15 +42,23 @@ def test_param_change_invalidates_only_consumer_and_downstream(
     chain_ws: Workspace, make_ws: WsFactory
 ) -> None:
     repro(chain_ws)
-    write(chain_ws.root / "params.yaml", "prep:\n  mode: upper\ntrain:\n  lr: 0.5\nunrelated:\n  note: hello\n")
+    write(
+        chain_ws.root / "params.yaml",
+        "prep:\n  mode: upper\ntrain:\n  lr: 0.5\nunrelated:\n  note: hello\n",
+    )
     report = repro(reload(make_ws, chain_ws))
     assert actions(report) == {"prepare": "up-to-date", "train": "ran", "evaluate": "ran"}
     assert report.by_name()["train"].reasons == ["param train.lr changed: 0.1 → 0.5"]
 
 
-def test_unrelated_param_change_invalidates_nothing(chain_ws: Workspace, make_ws: WsFactory) -> None:
+def test_unrelated_param_change_invalidates_nothing(
+    chain_ws: Workspace, make_ws: WsFactory
+) -> None:
     repro(chain_ws)
-    write(chain_ws.root / "params.yaml", "prep:\n  mode: upper\ntrain:\n  lr: 0.1\nunrelated:\n  note: bye\n")
+    write(
+        chain_ws.root / "params.yaml",
+        "prep:\n  mode: upper\ntrain:\n  lr: 0.1\nunrelated:\n  note: bye\n",
+    )
     report = repro(reload(make_ws, chain_ws))
     assert set(actions(report).values()) == {"up-to-date"}
 
@@ -61,7 +73,9 @@ def test_command_change_invalidates(chain_ws: Workspace, make_ws: WsFactory) -> 
     assert actions(report)["train"] == "up-to-date"
 
 
-def test_revert_restores_from_cache_without_running(chain_ws: Workspace, make_ws: WsFactory) -> None:
+def test_revert_restores_from_cache_without_running(
+    chain_ws: Workspace, make_ws: WsFactory
+) -> None:
     repro(chain_ws)
     params = chain_ws.root / "params.yaml"
     original = params.read_text()
@@ -126,7 +140,9 @@ def test_env_var_tracked_without_storing_value(make_ws: WsFactory, monkeypatch: 
 def test_salt_and_outs_changes_invalidate(make_ws: WsFactory) -> None:
     ws = make_ws("stages:\n  s:\n    cmd: echo a > a.txt\n    outs: [a.txt]\n")
     repro(ws)
-    ws = make_ws("stages:\n  s:\n    cmd: echo a > a.txt\n    outs: [a.txt]\n    salt: v2\n", root=ws.root)
+    ws = make_ws(
+        "stages:\n  s:\n    cmd: echo a > a.txt\n    outs: [a.txt]\n    salt: v2\n", root=ws.root
+    )
     report = repro(ws)
     assert report.by_name()["s"].reasons == ["salt changed: '' → 'v2'"]
 
@@ -197,7 +213,9 @@ def test_python_helper_change_invalidates_transitively(tmp_path: Path) -> None:
     assert (root / "b.txt").read_text() == "44"
 
 
-def test_stat_cache_does_not_hide_same_size_rewrite(chain_ws: Workspace, make_ws: WsFactory) -> None:
+def test_stat_cache_does_not_hide_same_size_rewrite(
+    chain_ws: Workspace, make_ws: WsFactory
+) -> None:
     repro(chain_ws)
     raw = chain_ws.root / "raw.txt"
     st = raw.stat()

@@ -36,8 +36,18 @@ stages:
 
 def _spawn(root: Path, jobs: int) -> subprocess.Popen[str]:
     return subprocess.Popen(
-        [sys.executable, "-m", "dagcache", "-f", str(root / "dagcache.yaml"), "repro", "-q",
-         "-j", str(jobs), "--json"],
+        [
+            sys.executable,
+            "-m",
+            "dagcache",
+            "-f",
+            str(root / "dagcache.yaml"),
+            "repro",
+            "-q",
+            "-j",
+            str(jobs),
+            "--json",
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -48,7 +58,7 @@ def test_concurrent_processes_run_each_stage_exactly_once(make_ws: WsFactory) ->
     ws = make_ws(SLOW_DIAMOND)
     procs = [_spawn(ws.root, jobs) for jobs in (1, 2, 3)]
     outputs = [p.communicate(timeout=120) for p in procs]
-    for p, (out, err) in zip(procs, outputs, strict=True):
+    for p, (_out, err) in zip(procs, outputs, strict=True):
         assert p.returncode == 0, err
     for stage in ("root", "left", "right", "join"):
         count = (ws.root / f".count-{stage}").read_text().splitlines()

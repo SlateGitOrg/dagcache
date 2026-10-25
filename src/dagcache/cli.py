@@ -322,12 +322,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds to wait for locks (default: forever)",
     )
     sub = p.add_subparsers(dest="command", required=True)
+    # Let -v also follow the subcommand without overriding a global -v.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-v", "--verbose", action="store_true", default=argparse.SUPPRESS)
 
-    s = sub.add_parser("init", help="create a starter dagcache.yaml")
+    s = sub.add_parser("init", help="create a starter dagcache.yaml", parents=[common])
     s.set_defaults(func=cmd_init)
 
     for name in ("repro", "run"):
-        s = sub.add_parser(name, help="bring outputs up to date (run/restore stale stages)")
+        s = sub.add_parser(
+            name, help="bring outputs up to date (run/restore stale stages)", parents=[common]
+        )
         s.add_argument("targets", nargs="*", help="stages to reproduce (default: all)")
         s.add_argument("-j", "--jobs", type=int, default=None, help="parallel stages")
         s.add_argument("--force", action="store_true", help="run every selected stage")
@@ -339,23 +344,25 @@ def build_parser() -> argparse.ArgumentParser:
         s.add_argument("--json", action="store_true", help="print results as JSON")
         s.set_defaults(func=cmd_repro)
 
-    s = sub.add_parser("status", help="show stale stages and why")
+    s = sub.add_parser("status", help="show stale stages and why", parents=[common])
     s.add_argument("targets", nargs="*")
     s.add_argument("--json", action="store_true")
     s.add_argument("--check", action="store_true", help="exit 1 if anything needs work")
     s.set_defaults(func=cmd_status)
 
-    s = sub.add_parser("dag", help="print the stage graph")
+    s = sub.add_parser("dag", help="print the stage graph", parents=[common])
     s.add_argument("--format", choices=["text", "mermaid", "dot"], default="text")
     s.add_argument("--status", action="store_true", help="annotate with stage states")
     s.set_defaults(func=cmd_dag)
 
-    s = sub.add_parser("lineage", help="show what produced an artifact")
+    s = sub.add_parser("lineage", help="show what produced an artifact", parents=[common])
     s.add_argument("path")
     s.add_argument("--format", choices=["text", "json", "mermaid", "dot"], default="text")
     s.set_defaults(func=cmd_lineage)
 
-    s = sub.add_parser("gc", help="delete cache entries not reachable from the lock file")
+    s = sub.add_parser(
+        "gc", help="delete cache entries not reachable from the lock file", parents=[common]
+    )
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--keep-days", type=float, default=None, help="also keep recently used")
     s.add_argument("--keep-lock", action="append", default=[], help="extra lock file roots")
@@ -364,11 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_gc)
 
     for name, func in (("push", cmd_push), ("pull", cmd_pull)):
-        s = sub.add_parser(name, help=f"{name} cached results for locked stages")
+        s = sub.add_parser(name, help=f"{name} cached results for locked stages", parents=[common])
         s.add_argument("targets", nargs="*")
         s.set_defaults(func=func)
 
-    s = sub.add_parser("cache", help="inspect the local cache")
+    s = sub.add_parser("cache", help="inspect the local cache", parents=[common])
     s.add_argument("cache_cmd", choices=["stats", "verify"])
     s.set_defaults(func=cmd_cache)
     return p

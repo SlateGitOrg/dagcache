@@ -26,7 +26,9 @@ def test_all_up_to_date_after_run(chain_ws: Workspace) -> None:
     assert {v[0] for v in states(chain_ws).values()} == {"up-to-date"}
 
 
-def test_param_change_reason_and_pending_downstream(chain_ws: Workspace, make_ws: WsFactory) -> None:
+def test_param_change_reason_and_pending_downstream(
+    chain_ws: Workspace, make_ws: WsFactory
+) -> None:
     repro(chain_ws)
     write(chain_ws.root / "params.yaml", "prep:\n  mode: lower\ntrain:\n  lr: 0.1\n")
     st = states(make_ws(root=chain_ws.root))
