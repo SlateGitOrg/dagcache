@@ -277,7 +277,7 @@ machine (macOS arm64, 8 cores, Python 3.12.13).
 | full gate | `make check` | ruff format + lint clean, `mypy --strict` clean, **165 passed** (2 integration tests deselected) |
 | coverage (line + branch, `src/dagcache`) | `make check` (`pytest --cov`, gate `fail_under = 85`) | **95.09 %** |
 | real S3 server | `make integration` (SeaweedFS 3.97 in Docker) | 2 passed |
-| source size | `wc -l src/dagcache/*.py src/dagcache/backends/*.py` | 4,585 lines (tests: 2,539) |
+| source size | `wc -l src/dagcache/*.py src/dagcache/backends/*.py` | 4,616 lines (tests: 2,575 in tests/*.py, 2,639 with tests/integration) |
 
 The tests include property tests (Hypothesis: canonical-JSON order independence,
 tree-digest order independence, scheduler correctness on random DAGs, topological
